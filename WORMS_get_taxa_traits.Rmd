@@ -1,0 +1,557 @@
+---
+title: "WORMS_get_trait_data"
+author: "Nathan R. Geraldi"
+date: "April 25, 2022"
+output: github_document
+---
+
+set table options
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## libraries
+```{r libraries, message=FALSE, warning=FALSE}
+
+library(fields)
+library(psych)
+library(tidyverse) 
+
+library(worrms) # used but not loaded  devtools::install_github("ropensci/worrms")
+```
+
+## functions
+```{r functions, message=FALSE, warning=FALSE}
+# function to remove rows with n number of NA's
+delete.na <- function(DF, n=0) {
+  DF[rowSums(is.na(DF)) <= n,]
+}
+  ######################################################################
+  
+#' Function to get functional group info for an Aphia ID
+#### from --   https://github.com/tomjwebb/WoRMS-functional-groups
+#  didn't use, removed  get_worms_fgrp
+
+  
+
+
+```
+
+
+## define universal variables
+```{r define_universal}
+
+
+dir<-"/Users/nathangeraldi/Dropbox/"
+out_file<-"Documents/Naturemetrics/data/worms_traits/"
+# export  to project folder
+export_file<-out_file
+#  name of data
+dat_name<-paste("SOTEAG Appendices.xlsx")  
+# name for dating info
+
+
+############
+################### set file path and name of sample data
+sam_file_path<-paste0(dir,out_file,dat_name) ## set sample data file
+
+##
+
+```
+
+
+## import data
+Sample data excel sheet see post_DADA2 rmd for details
+```{r import}
+# sample data -- will need Quality control !!! make sure sample_se make sense
+sheets <- openxlsx::getSheetNames(sam_file_path)
+sam_dat <- lapply(sheets,openxlsx::read.xlsx,xlsxFile=sam_file_path)  # mes1<-sam_dat[[2]]   names(mes1)  names(sam_dat)
+names(sam_dat) <- sheets   # add name to each list
+
+# bind if mutliple sheets
+dat<-bind_rows(sam_dat, .id = 'type') 
+ mes<-sam_dat[[1]]
+
+```
+
+
+## tidy species
+
+
+```{r tidy_sp}
+# tidy     names(dat)   names(taxa)
+tl<-c("Superkingdom","Kingdom","Phylum", "Class", "Order", "Family", "Genus", "Species")  # set for separate lineage
+tl<-c("Kingdom","Phylum", "Class", "Order", "Family", "Genus", "Species")  # set for separate lineage
+
+taxa<- dat %>% # names(dat)   unique(dat$primer)   unique(taxa$primer)
+    select(Kingdom,Phylum, Class, Order, Family, Genus, Species) %>% 
+    unite("lineage", Kingdom:Species, sep=";") %>% 
+    filter(!duplicated(lineage)) %>% # remove duplicate species
+    tidyr::separate(lineage, into=tl, sep=";" , remove=FALSE)   %>% 
+   #mutate(Species_clean=gsub("(sp. ).*", "\\1", Species)  ) %>%  # clean names remove everything after sp. in speceis 
+   # mutate(Species_clean=gsub("[", "", Species_clean, fixed = TRUE)  ) %>% 
+   # mutate(Species_clean=gsub("]", "", Species_clean, fixed = TRUE)  ) %>% 
+  # remove white space, just in case
+    mutate(Species=trimws(Species))
+    
+  ##  remove taxa without species
+taxa2<- taxa %>%
+      filter(Species!="NA")
+```
+
+
+## export
+turned off
+```{r export}
+
+#  data.table::fwrite(taxa,paste(dir,export_file,"Red_sea_eDNA_taxa_v2.csv",sep=""),row.names=F, sep=",")
+
+```
+
+
+
+
+## worm info
+use worms package to get accepted names
+use warms package to get information including - Kingdom through species
+```{r worms_info}
+##   check and change names in worms     ##################################
+#   library(worrms)
+### test
+xx<-taxa2$Species[1:5] # set species name column
+sp_info <- worrms::wm_records_names(name = xx, fuzzy = F, marine_only = F) # get worrms info
+worm_info <- bind_rows(sp_info)    #  make dataframe,   names(my_sp_taxo)
+
+#####   begin loop to get basic worrms info -- 
+# set pattern
+xx<-taxa2$Species # set species name column
+z<-50  ## batch size
+stt<-seq(1,length(xx),by=z)  # head(stt)   
+
+for (i in stt) {
+  
+  if (i== last(stt)){
+    j<-length(xx) } else{j<-i+(z-1)}
+
+g<- xx[i:j]
+gg <- worrms::wm_records_names(name = g, fuzzy = F, marine_only = F) # get worrms info
+ggg<-bind_rows(gg) 
+
+if (i==1){
+  worm_info<-ggg}
+else{
+  worm_info<-rbind(worm_info,ggg)}
+print(j)  # print(Sys.time()) 
+}
+
+## tidy
+#   names(worm_info)
+worm_info <- worm_info %>% 
+  select(AphiaID, scientificname, valid_AphiaID, valid_name, kingdom, phylum, class, order, family, genus, isMarine) %>% 
+  rename(AphiaID_old = AphiaID, species_ncbi = scientificname, AphiaID = valid_AphiaID,  species_worrms=valid_name )
+
+```
+
+## worm attributes
+get size and
+```{r worms_attt1}
+## use aphid id to get more info
+## basics
+#
+#   at<-  worrms::wm_attr_data(id = 494981)  #sp_info$AphiaID[8])
+
+
+xx<-worm_info$AphiaID[complete.cases(worm_info$AphiaID)] # set species name column
+xx<- xx[!duplicated(xx)]## remove dups, just in case corrections made them
+z<-50  ## batch size
+stt<-seq(1,length(xx),by=z)  # head(stt)   i<-1;j<-50
+
+for (i in stt) {
+  
+  if (i== last(stt)){
+    j<-length(xx) } else{j<-i+(z-1)}
+
+g<- xx[i:j]
+gg <- worrms::wm_attr_data_(id = g, include_inherited=TRUE) # get worrms info
+ggg<-bind_rows(gg) 
+
+if (i==1){
+  worm_att1<-ggg}
+else{
+  worm_att1<-rbind(worm_att1,ggg)}
+print(j)  # print(Sys.time()) 
+}
+
+
+```
+
+## tidy attributts
+get size and
+```{r tid_attt1}
+## tidy       
+  worm_att1_2<- worm_att1 %>%     # names(worm_att1_2)    unique(worm_att1_2$measurementType)
+    separate(children, into=letters[1:10], sep=",") %>% ## get extra info including unit - mm or cm
+    select(AphiaID, measurementType, measurementValue, c, d, AphiaID_Inherited, source_id) %>% 
+    mutate(c=qdapRegex::rm_between(c, '"', '"', extract=TRUE)) %>% 
+    mutate(d=qdapRegex::rm_between(d, '"', '"', extract=TRUE))  %>% 
+    mutate(c=unlist(c), d=unlist(d)) %>% 
+    rename( measure_defn= c, unit = d) %>% 
+          ungroup()  %>% 
+      mutate(AphiaID = as.numeric(AphiaID))
+  
+## body size
+  worm_att1_bs <- worm_att1_2 %>%   # unique(worm_att1_bs$unit)
+      filter(measurementType == "Body size (qualitative)" | measurementType == "Body size") %>% # check if qualitative - all 0.2-200 mm
+      mutate(size_mm = -100) %>% 
+      mutate(size_mm = if_else(unit=="mm" , as.numeric(measurementValue), size_mm)) %>% 
+      mutate(size_mm = if_else(unit=="µm" , as.numeric(measurementValue)/1000, size_mm)) %>% 
+    # switched from *1000 to /1000 and /10 to *10 in May 2022 an reran !!!!!!!!
+      mutate(size_mm = if_else(unit=="cm" , as.numeric(measurementValue)*10, size_mm))  %>%
+    mutate(size_mm = replace(size_mm, size_mm<0, NA)) %>% 
+      select(-measurementType) %>% 
+      group_by(AphiaID) %>% 
+      summarize(max_size_mm= max(size_mm, na.rm = TRUE)) %>% 
+      select(AphiaID, max_size_mm) %>% 
+      rename( max_body_size_mm = max_size_mm) 
+
+  
+## Functional group
+    worm_att1_fg <- worm_att1_2 %>%   # unique(worm_att1_bs$unit)    names(worm_att1_fg )
+      filter(measurementType == "Functional group") %>%
+      select(AphiaID, measurementValue, unit) %>% 
+      mutate(unit = if_else(unit=="larva > planula" , "larva_planula" , unit))  %>%  # fix so good column name
+      distinct() %>% ## remove duplicate rows
+      ## add fixes for error mentioned in next note
+      filter( ! (AphiaID==103862 & measurementValue == "benthos > macrobenthos") ) %>%  # keep only benthos
+      filter( ! (AphiaID==112849 & measurementValue == "benthos > meiobenthos") ) %>%  # keep only benthos
+      filter( ! (AphiaID==115723 & measurementValue == "benthos > meiobenthos") ) %>%  # keep only benthos
+      filter( ! (AphiaID==115960 & measurementValue == "benthos > meiobenthos") ) %>%  # keep only benthos
+      filter( ! (AphiaID==136084 & measurementValue == "benthos > macrobenthos") ) %>%  # keep only benthos
+      filter( ! (AphiaID==355663 & measurementValue == "plankton > mesoplankton") ) %>%  # keep only bentho
+      filter( ! (AphiaID==  410749 & measurementValue == "benthos > meiobenthos") ) %>%  # keep only benthos
+       filter( ! (AphiaID==  206950 & measurementValue == "plankton > mesoplankton") ) %>%  # keep only benthos
+    filter( ! (AphiaID==  206952 & measurementValue == "plankton > mesoplankton") ) %>%  # keep only benthos
+    filter( ! (AphiaID==  207211 & measurementValue == "plankton > mesoplankton") ) %>%  # keep only benthos
+    filter( ! (AphiaID==  220588 & measurementValue == "benthos > macrobenthos") ) %>%  # keep only benthos
+    filter( ! (AphiaID== 231751 & measurementValue == "benthos > macrobenthos") ) %>%  # keep only benthos
+   filter( ! (AphiaID== 110303 & measurementValue == "mixoplankton > Constitutive Mixoplankton") ) %>%  # keep only benthos
+      filter( ! (AphiaID== 234031 & measurementValue == "benthos > epibenthos") ) %>%  # keep only benthos
+    filter( ! (AphiaID== 427742 & measurementValue == "plankton > microplankton") ) %>%  # keep only benthos
+     filter( ! (AphiaID== 663583 & measurementValue == "plankton > nanoplankton") ) %>%  # keep only benthos
+      
+      # may get error in this line, rerun up to here and then look at duplicate errors and fix
+      spread(key=unit,value=measurementValue, fill=NA) %>% 
+      mutate(adult = if_else(polyp=="benthos" , polyp , adult, adult))  %>%
+     # mutate(larva = if_else(complete.cases(nauplius) , nauplius , larva, larva))  %>%
+      mutate(larva = if_else(complete.cases(larva_planula) , larva_planula , larva, larva))  %>%
+      select(AphiaID, adult, larva) %>% 
+      rename( functinoal_group_adult = adult , functinoal_group_larva = larva )
+  
+## "Feedingtype"
+      worm_att1_ft <- worm_att1_2 %>%   #   unique(worm_att1_ft$feeding_type)
+          filter(measurementType == "Feedingtype") %>% 
+          filter(unit!="larva" |  is.na(unit)) %>% 
+          select(AphiaID, measurementValue) %>% 
+          rename( feeding_type = measurementValue ) %>% 
+          mutate(ft2 = if_else(grepl("deposit",feeding_type ) , "deposit feeder" , feeding_type)) %>% 
+          mutate(ft2 = if_else(grepl("parasitic",ft2) , "parasitic" , ft2)) %>% 
+        mutate(ft2 = if_else(grepl("carnivore",ft2) , "predator" , ft2)) %>% 
+        mutate(ft2 = if_else(grepl("grazer",ft2) , "grazer" , ft2)) %>% 
+        mutate(ft2 = if_else(grepl("suspension",ft2) , "suspension or filter feeder" , ft2)) %>% 
+        mutate(ft2 = if_else(grepl("filter",ft2) , "suspension or filter feeder" , ft2)) %>%
+        ## duplicates need specific
+        mutate(ft2 = if_else( AphiaID==413379 , "grazer" , ft2)) %>% #molusk that grazes algae - more than deposit feeder
+        mutate(ft2 = if_else( AphiaID==207675 , "suspension or filter feeder" , ft2)) %>% # giant clam - bivalve more associated with filter than symbiont
+        mutate(ft2 = if_else( AphiaID==106623 , "parasitic" , ft2)) %>% 
+        
+        select(AphiaID,ft2) %>% 
+        rename(feeding_type = ft2) %>% 
+            distinct(AphiaID, .keep_all = TRUE )  #   %>% # will take alphabetically first entry - favors predator over scavenger!!!!!!
+     
+         # filter(duplicated(AphiaID))  
+      # !!!  to check each time !!!  , shouldn't be any dups if yes then remove at if_else and aphid id
+       mes<-worm_att1 %>% 
+         filter(AphiaID==106623)
+
+
+## AMBI ecological group
+          worm_att1_AMBI <- worm_att1_2 %>%   # 
+          filter(measurementType == "AMBI ecological group")
+      ##      ONLY 46 - do not use yet
+
+
+####    add back to original worrm data
+ 
+          worm_info2 <- worm_info %>%     
+              left_join(worm_att1_bs) %>% 
+            left_join(worm_att1_fg) %>% 
+            left_join(worm_att1_ft) %>% 
+            rename(species_clean_ncbi = species_ncbi, AphiaID_ncbi=AphiaID_old)
+##    !!!!!!  make sure has same number of rows as worm_info !!!!! -- ****will need to fix*****  !!!!!!!!!!!!!!
+          
+```
+
+
+## combine 
+add back to original taxonomy table
+```{r combine}
+#  names(taxa)  names(worm_info2)    names(taxa2)
+
+taxa2 <- taxa %>% 
+  rename(species_clean_ncbi = Species) %>% 
+  left_join(worm_info2) 
+  
+
+```
+
+
+
+
+
+## export
+```{r export}
+data.table::fwrite(worm_info2,paste(dir,export_file,"Soteag_sizes_worms.csv",sep=""),row.names=F, sep=",")
+
+
+data.table::fwrite(taxa2,paste(dir,export_file,"Soteag_sizes_worms.csv",sep=""),row.names=F, sep=",")
+
+# to shared folder
+data.table::fwrite(taxa2,paste(dir,share_file,"Red_sea_eDNA_traits2_v2.csv",sep=""),row.names=F, sep=",")
+```
+
+
+
+
+## compare versoins - 1
+April 2021 re-ran tax assign, changed taxonomy
+need to combine and check
+```{r compare}
+
+#  dat_new<-data.table::fread(file = paste0(dir,share_file,"Red_sea_eDNA_traits2_v2.csv"),sep=",")
+dat_new<-data.table::fread(file = paste(dir,export_file,"Red_sea_eDNA_taxa_v2.csv",sep="") , sep=",")# only 18s but no worrms traits
+
+dat_orig<- openxlsx::read.xlsx(xlsxFile= paste0(dir,share_file,"Red_sea_eDNA_traits_Ken2.xlsx")   )
+colnames(dat_orig)[25]<-"AS_worms"
+
+dat2<-dat_orig %>%  # names(dat)
+    distinct(lineage, .keep_all = FALSE)
+
+new2<-dat_new %>% 
+  distinct(lineage, .keep_all = TRUE) 
+
+
+
+
+```
+
+
+
+## fix old ver
+use same changes used to fix to fix old
+```{r fix old}
+
+
+dat2<-dat_orig %>%  # names(dat_orig)
+    distinct(lineage, .keep_all = TRUE) %>%
+  select(lineage:Species, isMarine:X42) %>% 
+  rename(kingdom=Kingdom, phylum=Phylum, class=Class, order=Order, family=Family, genus=Genus) %>% 
+#
+#
+ mutate( kingdom=if_else (kingdom=="Metazoa",  "Animalia" , kingdom )  ) %>% 
+  mutate( class=if_else (class=="Dinoflagellata incertae sedis",  "Dinophyceae" , class )  ) %>% 
+  mutate( order=if_else (order=="Gymnodiniaceae",  "Gymnodiniales " , order )  ) %>% 
+   mutate( phylum=if_else (class=="Dinophyceae",  "Myzozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Dinophyceae",  "Chromista" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Dictyochophyceae",  "Ochrophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Dictyochophyceae",  "Chromista" , kingdom )  ) %>% 
+mutate( phylum=if_else (class=="Ichthyosporea",  "Choanozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Ichthyosporea",  "Protozoa" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Chrysophyceae",  "Ochrophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Chrysophyceae",  "Chromista" , kingdom )  ) %>%
+  mutate( phylum=if_else (class=="Pelagophyceae",  "Ochrophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Pelagophyceae",  "Chromista" , kingdom )  ) %>% 
+   mutate( phylum=if_else (class=="Phaeophyceae",  "Ochrophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Phaeophyceae",  "Chromista" , kingdom )  ) %>% 
+   mutate( kingdom=if_else (phylum=="Rhodophyta",  "Plantae" , kingdom )  ) %>% # Rhodophyta
+  mutate( kingdom=if_else (kingdom=="Viridiplantae",  "Plantae" , kingdom )  ) %>%
+  mutate( class=if_else (order=="Thraustochytrida",  "Labyrinthulea" , class )  ) %>% 
+  mutate( phylum=if_else (order=="Thraustochytrida",  "Bigyra" , phylum )  ) %>% 
+  mutate( kingdom=if_else (order=="Thraustochytrida",  "Chromista" , kingdom )  ) %>% 
+  mutate( class=if_else (order=="Labyrinthulida",  "Labyrinthulea" , class )  ) %>% 
+  mutate( phylum=if_else (order=="Labyrinthulida",  "Bigyra" , phylum )  ) %>% 
+  mutate( kingdom=if_else (order=="Labyrinthulida",  "Chromista" , kingdom )  ) %>% 
+  mutate( class=if_else (order=="Bicosoecida",  "" , class )  ) %>% 
+  mutate( phylum=if_else (order=="Bicosoecida",  "Bigyra" , phylum )  ) %>% 
+  mutate( kingdom=if_else (order=="Bicosoecida",  "Chromista" , kingdom )  ) %>% 
+   mutate( class=if_else (order=="Chaetonotida",  "" , class )  ) %>% 
+  mutate( phylum=if_else (order=="Chaetonotida",  "Gastrotricha" , phylum )  ) %>% 
+  mutate( kingdom=if_else (order=="Chaetonotida",  "Animalia" , kingdom )  ) %>% 
+mutate( kingdom=if_else (phylum=="Apicomplexa",  "Chromista" , kingdom )  ) %>% 
+mutate( class=if_else (class=="Coscinodiscophyceae",  "Bacillariophyceae" , class )  ) %>% 
+mutate( phylum=if_else (phylum=="Bacillariophyta",  "Bacillariophyceae" , phylum )  ) %>% 
+  mutate( phylum=if_else (phylum=="Bacillariophyceae",  "Ochrophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (phylum=="Ochrophyta",  "Chromista" , kingdom )  ) %>%
+mutate( class=if_else (order=="Phaeocystales",  "Prymnesiophyceae" , class )  ) %>% 
+  mutate( phylum=if_else (class=="Prymnesiophyceae",  "Haptophyta" , phylum )  ) %>% 
+   mutate( kingdom=if_else (phylum=="Ciliophora",  "Chromista" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Oomycota",  "Oomycota" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Oomycota",  "Chromista" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Bigyra",  "Bigyra" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Bigyra",  "Chromista" , kingdom )  ) %>% 
+mutate( kingdom=if_else (phylum=="Haptista",  "Chromista" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Cryptophyceae",  "Cryptophyta" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Cryptophyceae",  "Chromista" , kingdom )  ) %>% 
+mutate( kingdom=if_else (phylum=="Euglenozoa",  "Protozoa" , kingdom )  )  %>% 
+mutate( kingdom=if_else (phylum=="Firmicutes",  "Bacteria" , kingdom )  )  %>% 
+mutate( kingdom=if_else (phylum=="Proteobacteria",  "Bacteria" , kingdom )  ) %>% 
+  mutate( kingdom=if_else (phylum=="Evosea",  "Protozoa" , kingdom )  ) %>% 
+  mutate( kingdom=if_else (phylum=="Euglenozoa",  "Protozoa" , kingdom )  ) %>% 
+mutate( phylum=if_else (order=="Macrodasyida",  "Gastrotricha" , phylum )  ) %>% 
+  mutate( kingdom=if_else (order=="Macrodasyida",  "Animalia" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Acantharea",  "Radiozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Acantharea",  "Chromista" , kingdom )  ) %>% 
+  mutate( phylum=if_else (class=="Acantharai",  "Radiozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Acantharia",  "Chromista" , kingdom )  ) %>% 
+mutate( class=if_else (class=="Choanoflagellata",  "Choanoflagellatea" , class )  ) %>% 
+mutate( phylum=if_else (class=="Choanoflagellatea",  "Choanozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Choanoflagellatea",  "Protozoa" , kingdom )  ) %>% 
+mutate( class=if_else (order=="Thaumatomonadida",  "Imbricatea" , class )  ) %>% 
+  mutate( phylum=if_else (class=="Imbricatea",  "Cercozoa" , phylum )  ) %>% 
+  mutate( class=if_else (class=="Polycystinea",  "Polycystina" , class )  ) %>% 
+  mutate( phylum=if_else (class=="Polycystina",  "Radiozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Polycystina",  "Chromista" , kingdom )  ) %>%  
+  mutate( class=if_else (order=="Leptomyxida",  "Tubulinea" , class )  ) %>% 
+  mutate( phylum=if_else (class=="Tubulinea",  "Amoebozoa" , phylum )  ) %>% 
+  mutate( kingdom=if_else (class=="Tubulinea",  "Protozoa" , kingdom )  ) %>%  
+mutate( kingdom=if_else (phylum=="Discosea",  "Protozoa" , kingdom )  )  %>% 
+mutate( kingdom=if_else (phylum=="Tubulinea",  "Protozoa" , kingdom )  )  %>% 
+mutate( kingdom=if_else (phylum=="Endomyxa",  "Chromista" , kingdom )  )  %>% 
+mutate( kingdom=if_else (phylum=="Cercozoa",  "Chromista" , kingdom )  )  
+ ##
+ #
+
+
+```
+
+##  combine_ver_2
+```{r combine_ver_2}
+
+dat_match<-dat2 %>% # names(dat2)
+  select(lineage, Superkingdom:Species) %>% 
+  rename(lineage_orig=lineage) %>% 
+  tidyr::unite(lineage_orig_new, Superkingdom:Species, sep=";",remove=F)  %>% 
+   inner_join(new2[,c(1,2:9)], by=c("lineage_orig_new"="lineage"))   # names(new)
+
+dat3 <- dat2 %>% # names(dat2)
+  select(lineage, Superkingdom:Species,  isMarine:X42) %>% 
+  rename(lineage_orig=lineage) %>% 
+  tidyr::unite(lineage_orig_corrected, Superkingdom:Species, sep=";",remove=F)  %>% 
+  select(lineage_orig, lineage_orig_corrected, isMarine:X42)
+
+  ## fuzzy match ??
+dat_match_fuzz<-new2 %>% # names(new2)
+  select(lineage, Superkingdom:Species) %>% 
+  rename(lineage_good=lineage) %>% 
+fuzzyjoin::stringdist_inner_join(dat3, by=c("lineage_good"="lineage_orig_corrected"), max_dist = 25, distance_col = "distance" ) %>% 
+  # get closes match only
+ group_by(lineage_good) %>%
+  top_n(1, desc(distance)) %>%
+  ungroup() %>% 
+  #filter(distance<5)
+  select(lineage_good, lineage_orig_corrected, distance,lineage_orig,  isMarine:X42) %>% 
+  #filter(distance>0) %>% 
+  arrange(lineage_good, lineage_orig_corrected, distance)
+  
+  
+#  join back to new 2    names(dat_match_fuzz)
+new3<-new2 %>% 
+    left_join(dat_match_fuzz, by=c("lineage"="lineage_good"))
+
+# export 
+data.table::fwrite(new3,paste(dir,share_file,"Red_sea_eDNA_traits_may2021_joined_to_old.csv",sep=""),row.names=F, sep=",")
+
+
+
+```
+
+
+
+## clean new version
+
+import updated taxa clean it and export it for Tahira
+by Nathan updated taxa after improved refernce library - April 2021, done on May 6 2021
+
+```{r clean_new}
+
+dat<- openxlsx::read.xlsx(xlsxFile= paste0(dir,share_file,"Red_sea_eDNA_traits_may2021_joined_to_old_data_added.xlsx")   )
+
+names(dat)
+
+dat1<- dat %>% # names(dat1)
+    select(lineage:Species, isMarine, AS_catagory:Planktonic.larval.form, tropic.reference:larvel.reference)
+
+
+# clean
+dat2<-dat1 %>% 
+    mutate(trophic.level=ifelse(lineage== "Eukaryota;Fungi;Ascomycota;Dothideomycetes;Pleosporales;Phaeosphaeriaceae;Ophiosphaerella;Ophiosphaerella herpotricha", "detritovore", trophic.level) )  %>% 
+    mutate(trophic.level=ifelse(lineage== "Eukaryota;Fungi;Ascomycota;Dothideomycetes;Pleosporales;Didymellaceae;Boeremia;Boeremia exigua", "detritovore" , trophic.level) )  %>% 
+   mutate(trophic.level=ifelse(lineage== "Eukaryota;Fungi;Ascomycota;Dothideomycetes;Dothideales;Saccotheciaceae;NA;NA","detritovore"  , trophic.level) )  %>% 
+    mutate(trophic.level=ifelse(lineage== "Eukaryota;Fungi;Ascomycota;Dothideomycetes;Dothideales;Saccotheciaceae;NA;NA" , "parasite"   , trophic.level) )  %>% 
+    mutate(zone=ifelse(Order=="Archigregarinorida", "benthic" , zone) )  %>% 
+    mutate(zone=ifelse(Class=="Spirotrichea", NA , zone) )  %>% 
+  mutate(zone=ifelse(Order=="Proseriata", "benthic" , zone) )  %>% 
+   mutate(zone=ifelse(Order=="Eugregarinorida", "benthic" , zone) )  %>% 
+  mutate(zone=ifelse(Family=="Macrostomidae", "benthic" , zone) )  %>% 
+    mutate(zone=ifelse(Order=="Proseriata", "benthic" , zone) )  %>% 
+    mutate(zone=ifelse(Order=="Polycladida", "benthic" , zone) )  %>% 
+  mutate(zone=ifelse(Order=="Proseriata", "benthic" , zone) )  %>% 
+     mutate(zone=ifelse(Order=="Eucoccidiorida", NA , zone) )  %>% 
+       mutate(zone=ifelse(Order=="Rotaliida", "benthic" , zone) )  %>% 
+      mutate(zone=ifelse(Order=="Eugregarinorida", "benthic" , zone) )  %>%
+  mutate(zone=ifelse(Order=="Dolichomicrostomida", NA , zone) )  %>% 
+  	mutate(zone=ifelse(Order=="Golfingiida", "benthic" , zone) )  %>%
+	mutate(zone=ifelse(Order=="Thraustochytrida", "benthic" , zone) )  %>%
+  mutate(Planktonic.larval.form=ifelse(Planktonic.larval.form=="both", "yes" , Planktonic.larval.form) )  %>%
+  
+  mutate(AS_catagory=ifelse(lineage=="Eukaryota;Animalia;Arthropoda;Hexanauplia;Cyclopoida;Sapphirinidae;Sapphirina;NA", "meso" , AS_catagory) )  %>%	
+  mutate(zone=ifelse(lineage=="Eukaryota;Animalia;Arthropoda;Hexanauplia;Cyclopoida;Sapphirinidae;Sapphirina;NA", "planktonic" , zone) )  %>%	
+
+  mutate(trophic.level=ifelse(lineage=="Eukaryota;Animalia;Annelida;Polychaeta;Phyllodocida;Aphroditidae;NA;NA", "deposit feeder", trophic.level) )%>% 
+
+# combine
+    #parasite and pathogen
+  mutate(trophic.level=ifelse(trophic.level=="parasite" | trophic.level=="pathogen", "parasite/pathogen"   , trophic.level) )  %>% 
+   mutate(trophic.level=ifelse(trophic.level=="detritivore" | trophic.level=="deposit feeders", "detritivore/deposit feeder"   , trophic.level) )  %>% 
+     # For Zone we put pelagic into planktonic- and intertidal into benthic- We remove any taxa with "land"
+    mutate(zone=ifelse(zone=="pelagic", "planktonic" , zone) )  %>% 
+    mutate(zone=ifelse(zone=="intertidal", "benthic" , zone) )  %>% 
+    filter(zone != "land") 
+    
+  
+mes<-dat2 %>% 
+    #filter(Kingdom=="Fungi")
+    #filter(trophic.level=="epiphyte/ endophyte")
+    #filter(zone=="parasite")
+filter(Planktonic.larval.form=="both")
+
+
+# export 
+data.table::fwrite(dat2,paste(dir,share_file,"Red_sea_eDNA_traits_may2021_for_Tahira.csv",sep=""),row.names=F, sep=",")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
